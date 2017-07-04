@@ -193,7 +193,7 @@ func (s *EagerBackendTestSuite) TestSetStatePending() {
 		st, err := s.backend.GetState(t.UUID)
 		s.Nil(err)
 		if st != nil {
-			s.Equal(tasks.PendingState, st.State)
+			s.Equal(tasks.StatePending, st.State)
 		}
 	}
 }
@@ -206,7 +206,7 @@ func (s *EagerBackendTestSuite) TestSetStateReceived() {
 		st, err := s.backend.GetState(t.UUID)
 		s.Nil(err)
 		if st != nil {
-			s.Equal(tasks.ReceivedState, st.State)
+			s.Equal(tasks.StateReceived, st.State)
 		}
 	}
 }
@@ -219,7 +219,7 @@ func (s *EagerBackendTestSuite) TestSetStateStarted() {
 		st, err := s.backend.GetState(t.UUID)
 		s.Nil(err)
 		if st != nil {
-			s.Equal(tasks.StartedState, st.State)
+			s.Equal(tasks.StateStarted, st.State)
 		}
 	}
 }
@@ -239,7 +239,7 @@ func (s *EagerBackendTestSuite) TestSetStateSuccess() {
 		s.Nil(err)
 		s.NotNil(st)
 
-		s.Equal(tasks.SuccessState, st.State)
+		s.Equal(tasks.StateSuccess, st.State)
 		s.Equal(taskResults, st.Results)
 	}
 }
@@ -252,8 +252,21 @@ func (s *EagerBackendTestSuite) TestSetStateFailure() {
 		st, err := s.backend.GetState(t.UUID)
 		s.Nil(err)
 		if st != nil {
-			s.Equal(tasks.FailureState, st.State)
+			s.Equal(tasks.StateFailure, st.State)
 			s.Equal("error", st.Error)
+		}
+	}
+}
+
+func (s *EagerBackendTestSuite) TestSetStateRetry() {
+	// task6
+	{
+		t := s.st[5]
+		s.backend.SetStateRetry(t)
+		st, err := s.backend.GetState(t.UUID)
+		s.Nil(err)
+		if st != nil {
+			s.Equal(tasks.StateRetry, st.State)
 		}
 	}
 }

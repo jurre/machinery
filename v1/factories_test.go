@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	machinery "github.com/RichardKnop/machinery/v1"
+	"github.com/RichardKnop/machinery/v1"
 	"github.com/RichardKnop/machinery/v1/backends"
 	"github.com/RichardKnop/machinery/v1/brokers"
 	"github.com/RichardKnop/machinery/v1/config"
@@ -190,7 +190,12 @@ func TestBackendFactory(t *testing.T) {
 
 	actual, err = machinery.BackendFactory(&cnf)
 	if assert.NoError(t, err) {
-		assert.NotNil(t, actual)
+		expected := backends.NewMongodbBackend(&cnf)
+		assert.True(
+			t,
+			reflect.DeepEqual(actual, expected),
+			fmt.Sprintf("conn = %v, want %v", actual, expected),
+		)
 	}
 }
 

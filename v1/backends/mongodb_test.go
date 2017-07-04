@@ -16,22 +16,18 @@ var (
 )
 
 func initTestMongodbBackend() (backends.Interface, error) {
-	conf := &config.Config{
+	cnf := &config.Config{
 		ResultBackend:   os.Getenv("MONGODB_URL"),
 		ResultsExpireIn: 30,
 	}
-	backend, err := backends.NewMongodbBackend(conf)
-	if err != nil {
-		return nil, err
-	}
+	backend := backends.NewMongodbBackend(cnf)
 
 	backend.PurgeGroupMeta(groupUUID)
 	for _, taskUUID := range taskUUIDs {
 		backend.PurgeState(taskUUID)
 	}
 
-	err = backend.InitGroup(groupUUID, taskUUIDs)
-	if err != nil {
+	if err := backend.InitGroup(groupUUID, taskUUIDs); err != nil {
 		return nil, err
 	}
 	return backend, nil
@@ -64,7 +60,7 @@ func TestSetStatePending(t *testing.T) {
 	if assert.NoError(t, err) {
 		taskState, err := backend.GetState(taskUUIDs[0])
 		if assert.NoError(t, err) {
-			assert.Equal(t, tasks.PendingState, taskState.State, "Not PendingState")
+			assert.Equal(t, tasks.StatePending, taskState.State, "Not StatePending")
 		}
 	}
 }
@@ -85,7 +81,7 @@ func TestSetStateReceived(t *testing.T) {
 	if assert.NoError(t, err) {
 		taskState, err := backend.GetState(taskUUIDs[0])
 		if assert.NoError(t, err) {
-			assert.Equal(t, tasks.ReceivedState, taskState.State, "Not ReceivedState")
+			assert.Equal(t, tasks.StateReceived, taskState.State, "Not StateReceived")
 		}
 	}
 }
@@ -106,7 +102,7 @@ func TestSetStateStarted(t *testing.T) {
 	if assert.NoError(t, err) {
 		taskState, err := backend.GetState(taskUUIDs[0])
 		if assert.NoError(t, err) {
-			assert.Equal(t, tasks.StartedState, taskState.State, "Not StartedState")
+			assert.Equal(t, tasks.StateStarted, taskState.State, "Not StateStarted")
 		}
 	}
 }
@@ -116,8 +112,8 @@ func TestSetStateSuccess(t *testing.T) {
 		return
 	}
 
-	resultType := "int64"
-	resultValue := int64(88)
+	resultType := "float64"
+	resultValue := float64(88.5)
 
 	backend, err := initTestMongodbBackend()
 	if err != nil {
@@ -138,7 +134,7 @@ func TestSetStateSuccess(t *testing.T) {
 
 	taskState, err := backend.GetState(taskUUIDs[0])
 	assert.NoError(t, err)
-	assert.Equal(t, tasks.SuccessState, taskState.State, "Not SuccessState")
+	assert.Equal(t, tasks.StateSuccess, taskState.State, "Not StateSuccess")
 	assert.Equal(t, resultType, taskState.Results[0].Type, "Wrong result type")
 	assert.Equal(t, float64(resultValue), taskState.Results[0].Value.(float64), "Wrong result value")
 }
@@ -163,7 +159,7 @@ func TestSetStateFailure(t *testing.T) {
 
 	taskState, err := backend.GetState(taskUUIDs[0])
 	assert.NoError(t, err)
-	assert.Equal(t, tasks.FailureState, taskState.State, "Not SuccessState")
+	assert.Equal(t, tasks.StateFailure, taskState.State, "Not StateSuccess")
 	assert.Equal(t, failStrig, taskState.Error, "Wrong fail error")
 }
 
@@ -180,7 +176,7 @@ func TestGroupCompleted(t *testing.T) {
 
 	isCompleted, err := backend.GroupCompleted(groupUUID, len(taskUUIDs))
 	if assert.NoError(t, err) {
-		assert.False(t, isCompleted, "Actualy group is not completed")
+		assert.False(t, isCompleted, "Actually group is not completed")
 	}
 
 	signature := &tasks.Signature{
@@ -188,7 +184,7 @@ func TestGroupCompleted(t *testing.T) {
 	}
 	err = backend.SetStateFailure(signature, "Fail is ok")
 	assert.NoError(t, err)
-	taskResultsState[taskUUIDs[0]] = tasks.FailureState
+	taskResultsState[taskUUIDs[0]] = tasks.StateFailure
 
 	signature = &tasks.Signature{
 		UUID: taskUUIDs[1],
@@ -201,50 +197,47 @@ func TestGroupCompleted(t *testing.T) {
 	}
 	err = backend.SetStateSuccess(signature, taskResults)
 	assert.NoError(t, err)
-	taskResultsState[taskUUIDs[1]] = tasks.SuccessState
+	taskResultsState[taskUUIDs[1]] = tasks.StateSuccess
 
 	signature = &tasks.Signature{
 		UUID: taskUUIDs[2],
 	}
 	err = backend.SetStateSuccess(signature, taskResults)
 	assert.NoError(t, err)
-	taskResultsState[taskUUIDs[2]] = tasks.SuccessState
+	taskResultsState[taskUUIDs[2]] = tasks.StateSuccess
 
 	isCompleted, err = backend.GroupCompleted(groupUUID, len(taskUUIDs))
 	if assert.NoError(t, err) {
-		assert.True(t, isCompleted, "Actualy group is completed")
+		assert.True(t, isCompleted, "Actually group is completed")
 	}
 
-	groupTasksStates, err := backend.GroupTaskStates(groupUUID, len(taskUUIDs))
+	taskStates, err := backend.GroupTaskStates(groupUUID, len(taskUUIDs))
 	assert.NoError(t, err)
 
-	assert.Equal(t, len(groupTasksStates), len(taskUUIDs), "Wrong len tasksStates")
-	for i := range groupTasksStates {
+	assert.Equal(t, len(taskStates), len(taskUUIDs), "Wrong len tasksStates")
+	for _, taskState := range taskStates {
 		assert.Equal(
 			t,
-			taskResultsState[groupTasksStates[i].TaskUUID],
-			groupTasksStates[i].State,
-			"Wrong state on", groupTasksStates[i].TaskUUID,
+			taskResultsState[taskState.TaskUUID],
+			taskState.State,
+			"Wrong state on", taskState.TaskUUID,
 		)
 	}
 }
 
-func TestMongodbDropIndexes(t *testing.T) {
-	mongoDBURL := os.Getenv("MONGODB_URL")
-	if mongoDBURL == "" {
+func TestGroupStates(t *testing.T) {
+	if os.Getenv("MONGODB_URL") == "" {
 		return
 	}
 
-	conf := &config.Config{
-		ResultBackend:   mongoDBURL,
-		ResultsExpireIn: 5,
+	backend, err := initTestMongodbBackend()
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	_, err := backends.NewMongodbBackend(conf)
+	taskStates, err := backend.GroupTaskStates(groupUUID, len(taskUUIDs))
 	assert.NoError(t, err)
-
-	conf.ResultsExpireIn = 7
-
-	_, err = backends.NewMongodbBackend(conf)
-	assert.NoError(t, err)
+	for i, taskState := range taskStates {
+		assert.Equal(t, taskUUIDs[i], taskState.TaskUUID)
+	}
 }

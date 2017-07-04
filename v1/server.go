@@ -9,7 +9,7 @@ import (
 	"github.com/RichardKnop/machinery/v1/brokers"
 	"github.com/RichardKnop/machinery/v1/config"
 	"github.com/RichardKnop/machinery/v1/tasks"
-	"github.com/RichardKnop/uuid"
+	"github.com/satori/go.uuid"
 )
 
 // Server is the main Machinery object and stores all configuration
@@ -88,15 +88,25 @@ func (server *Server) SetConfig(cnf *config.Config) {
 }
 
 // RegisterTasks registers all tasks at once
-func (server *Server) RegisterTasks(tasks map[string]interface{}) {
-	server.registeredTasks = tasks
+func (server *Server) RegisterTasks(namedTaskFuncs map[string]interface{}) error {
+	for _, task := range namedTaskFuncs {
+		if err := tasks.ValidateTask(task); err != nil {
+			return err
+		}
+	}
+	server.registeredTasks = namedTaskFuncs
 	server.broker.SetRegisteredTaskNames(server.GetRegisteredTaskNames())
+	return nil
 }
 
 // RegisterTask registers a single task
-func (server *Server) RegisterTask(name string, task interface{}) {
-	server.registeredTasks[name] = task
+func (server *Server) RegisterTask(name string, taskFunc interface{}) error {
+	if err := tasks.ValidateTask(taskFunc); err != nil {
+		return err
+	}
+	server.registeredTasks[name] = taskFunc
 	server.broker.SetRegisteredTaskNames(server.GetRegisteredTaskNames())
+	return nil
 }
 
 // IsTaskRegistered returns true if the task name is registered with this broker
@@ -107,11 +117,11 @@ func (server *Server) IsTaskRegistered(name string) bool {
 
 // GetRegisteredTask returns registered task by name
 func (server *Server) GetRegisteredTask(name string) (interface{}, error) {
-	task, ok := server.registeredTasks[name]
+	taskFunc, ok := server.registeredTasks[name]
 	if !ok {
-		return nil, fmt.Errorf("Task not registered: %s", name)
+		return nil, fmt.Errorf("Task not registered error: %s", name)
 	}
-	return task, nil
+	return taskFunc, nil
 }
 
 // SendTask publishes a task to the default queue
@@ -123,16 +133,16 @@ func (server *Server) SendTask(signature *tasks.Signature) (*backends.AsyncResul
 
 	// Auto generate a UUID if not set already
 	if signature.UUID == "" {
-		signature.UUID = fmt.Sprintf("task_%v", uuid.New())
+		signature.UUID = fmt.Sprintf("task_%v", uuid.NewV4())
 	}
 
 	// Set initial task state to PENDING
 	if err := server.backend.SetStatePending(signature); err != nil {
-		return nil, fmt.Errorf("Set State Pending: %v", err)
+		return nil, fmt.Errorf("Set state pending error: %s", err)
 	}
 
 	if err := server.broker.Publish(signature); err != nil {
-		return nil, fmt.Errorf("Publish Message: %v", err)
+		return nil, fmt.Errorf("Publish message error: %s", err)
 	}
 
 	return backends.NewAsyncResult(signature, server.backend), nil
@@ -176,7 +186,7 @@ func (server *Server) SendGroup(group *tasks.Group) ([]*backends.AsyncResult, er
 
 			// Publish task
 			if err := server.broker.Publish(s); err != nil {
-				errorsChan <- fmt.Errorf("Publish Message: %v", err)
+				errorsChan <- fmt.Errorf("Publish message error: %s", err)
 				return
 			}
 
@@ -214,9 +224,11 @@ func (server *Server) SendChord(chord *tasks.Chord) (*backends.ChordAsyncResult,
 
 // GetRegisteredTaskNames returns slice of registered task names
 func (server *Server) GetRegisteredTaskNames() []string {
-	var names []string
+	taskNames := make([]string, len(server.registeredTasks))
+	var i = 0
 	for name := range server.registeredTasks {
-		names = append(names, name)
+		taskNames[i] = name
+		i++
 	}
-	return names
+	return taskNames
 }
